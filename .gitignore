@@ -5,3 +5,7 @@ __pycache__/
 *.sqlite3
 .venv/
 venv/
+
+# 브라우저 자동화 도우미: 로그인 세션/쿠키가 담기므로 절대 커밋하지 않는다.
+browser_agent/.browser_profile/
+browser_agent/debug_screenshots/
