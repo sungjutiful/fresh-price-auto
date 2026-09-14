@@ -3,15 +3,16 @@
 사용하는 액션: dailyPriceByCategoryList (일별 부류별 도소매가격정보)
   - 부류코드(item_category_code) 하나를 넘기면 그 부류에 속한 모든 품목의
     "당일 도매/소매 평균가"를 하루치로 돌려준다.
-  - 특정 품목 하나만 콕 집어 조회하는 파라미터는 없어서, 응답에서 item_name이
+  - 특정 품목 하나만 콕 집어 조회하는 파라미터는 없어서, 응답에서 이름이
     우리가 찾는 품목명(예: "양파")을 포함하는 행만 걸러내는 방식으로 사용한다.
 
-주의: 이 코드는 KAMIS 공식 문서와 공개된 예제 URL/파라미터명을 교차 확인해서
-작성했지만, 실제 응답 JSON의 필드명은 개발 환경에서 kamis.or.kr 접속이 막혀
-있어 실제 호출로 검증하지 못했다. 그래서 파싱 로직은 흔히 쓰이는 필드명 후보를
-여러 개 시도하도록 방어적으로 작성했고, --raw 옵션으로 원본 응답을 그대로 볼 수
-있게 해뒀다. 실제 API 키로 처음 실행해보고 필드명이 다르면 _PRICE_KEYS /
-_NAME_KEYS 후보 목록만 조정하면 된다.
+실제 응답 확인 결과(2026-09-14, 채소류/category_code=200) 주의할 점:
+  - 가격 필드는 "price"가 아니라 "dpr1"(당일가)이다.
+  - "대파"/"쪽파"처럼 세부 품종은 item_name이 아니라 kind_name에 들어있다.
+    예: 파(item_code=246)의 item_name은 "파"이고, kind_name이 "대파(1kg)" 또는
+    "쪽파(1kg)"로 나뉜다. 그래서 이름 매칭은 item_name과 kind_name을 합쳐서 한다.
+  - 같은 품목이 등급(rank, 상품/중품)별로 여러 행 나올 수 있어, 상품(rank_code="04")
+    행을 우선 채택한다.
 """
 from __future__ import annotations
 
@@ -34,10 +35,14 @@ PRODUCT_CLS_LABELS = {
 
 DEFAULT_COUNTRY_CODE = "1101"  # 서울
 
-# 응답 JSON에서 품목명/가격을 찾을 때 시도해볼 후보 필드명들 (우선순위 순)
+# 응답 JSON에서 값을 찾을 때 시도해볼 후보 필드명들 (우선순위 순, dpr1이 실제 필드)
 _NAME_KEYS = ("item_name", "itemname")
-_PRICE_KEYS = ("price", "dpr1", "value")
+_KIND_NAME_KEYS = ("kind_name", "kindname")
+_PRICE_KEYS = ("dpr1", "price", "value")
 _UNIT_KEYS = ("unit",)
+_RANK_CODE_KEYS = ("rank_code", "rankcode")
+
+PREFERRED_RANK_CODE = "04"  # 상품(上品) 등급
 
 
 class KamisApiError(RuntimeError):
@@ -64,15 +69,21 @@ class KamisCredentials:
 @dataclass
 class ItemPrice:
     item_name: str
+    kind_name: str
     unit: str
     product_cls_code: str
     regday: str
     price: float | None
+    rank_code: str
     raw: dict[str, Any] = field(repr=False)
 
     @property
     def product_cls_label(self) -> str:
         return PRODUCT_CLS_LABELS.get(self.product_cls_code, self.product_cls_code)
+
+    @property
+    def display_name(self) -> str:
+        return self.kind_name or self.item_name
 
 
 def _first_present(d: dict[str, Any], keys: tuple[str, ...]) -> Any:
@@ -162,15 +173,19 @@ class KamisClient:
             name = _first_present(raw_item, _NAME_KEYS)
             if name is None:
                 continue
+            kind_name = _first_present(raw_item, _KIND_NAME_KEYS) or ""
             price = _parse_price(_first_present(raw_item, _PRICE_KEYS))
             unit = _first_present(raw_item, _UNIT_KEYS) or ""
+            rank_code = _first_present(raw_item, _RANK_CODE_KEYS) or ""
             results.append(
                 ItemPrice(
                     item_name=str(name).strip(),
+                    kind_name=str(kind_name).strip(),
                     unit=str(unit).strip(),
                     product_cls_code=product_cls_code,
                     regday=regday,
                     price=price,
+                    rank_code=str(rank_code).strip(),
                     raw=raw_item,
                 )
             )
@@ -184,6 +199,10 @@ class KamisClient:
     ) -> dict[str, list[ItemPrice]]:
         """item_names에 이름이 포함되는 품목들의 당일 소매/도매 평균가를 조회한다.
 
+        "대파"처럼 세부 품종명이 kind_name에만 있는 경우를 위해 item_name과
+        kind_name을 합쳐서 매칭한다. 같은 품목이 등급별로 여러 행 나오면
+        상품(rank_code="04") 행을 우선 채택한다.
+
         반환값: {"소매": [ItemPrice, ...], "도매": [ItemPrice, ...]}
         """
         result: dict[str, list[ItemPrice]] = {}
@@ -196,7 +215,9 @@ class KamisClient:
             matched = [
                 item
                 for item in all_items
-                if any(name in item.item_name for name in item_names)
+                if any(name in f"{item.item_name}{item.kind_name}" for name in item_names)
             ]
+            if any(item.rank_code == PREFERRED_RANK_CODE for item in matched):
+                matched = [item for item in matched if item.rank_code == PREFERRED_RANK_CODE]
             result[PRODUCT_CLS_LABELS[product_cls_code]] = matched
         return result

@@ -50,7 +50,7 @@ def main() -> None:
         for item in items:
             price_text = f"{item.price:,.0f}원" if item.price is not None else "가격 정보 없음"
             unit_text = f" / {item.unit}" if item.unit else ""
-            print(f"  {item.item_name:6s} {price_text}{unit_text}")
+            print(f"  {item.display_name:12s} {price_text}{unit_text}")
 
     if args.raw:
         print("\n--- RAW RESPONSE (마지막 호출분) ---")
