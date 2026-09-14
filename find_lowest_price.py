@@ -13,17 +13,8 @@ from datetime import date
 
 from config.suppliers import SUPPLIERS
 from src import db
+from src.cli_utils import parse_kv_pairs
 from src.order_optimizer import NoFeasiblePlanError, OrderPlan, SupplierCatalog, compare_bundle_vs_split
-
-
-def _parse_needs(pairs: list[str]) -> dict[str, float]:
-    needs = {}
-    for pair in pairs:
-        name, _, qty = pair.partition("=")
-        if not name or not qty:
-            raise SystemExit(f"--need 형식이 잘못됐습니다 (예: 양파=5): {pair}")
-        needs[name.strip()] = float(qty)
-    return needs
 
 
 def _print_plan(title: str, plan: OrderPlan) -> None:
@@ -46,7 +37,7 @@ def main() -> None:
     parser.add_argument("--regday", default=None, help="기준일 (YYYY-MM-DD), 기본값: 오늘")
     args = parser.parse_args()
 
-    needs = _parse_needs(args.need)
+    needs = parse_kv_pairs(args.need, "양파=5")
     regday = args.regday or date.today().isoformat()
 
     conn = db.get_connection()

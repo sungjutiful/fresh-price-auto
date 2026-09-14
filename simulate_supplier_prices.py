@@ -17,19 +17,10 @@ from dotenv import load_dotenv
 from config.items import TARGET_ITEM_NAMES, VEGETABLE_CATEGORY_CODE
 from config.suppliers import SUPPLIERS
 from src import db
+from src.cli_utils import parse_kv_pairs
 from src.kamis_client import KamisApiError, KamisClient
 from src.supplier_simulator import generate_daily_prices
 from datetime import date
-
-
-def _parse_base_price_args(pairs: list[str]) -> dict[str, float]:
-    result = {}
-    for pair in pairs:
-        name, _, value = pair.partition("=")
-        if not name or not value:
-            raise SystemExit(f"--base-price 형식이 잘못됐습니다 (예: 양파=1847): {pair}")
-        result[name.strip()] = float(value)
-    return result
 
 
 def get_base_prices_from_kamis(regday: str) -> dict[str, float]:
@@ -73,7 +64,7 @@ def main() -> None:
     regday = args.regday or date.today().isoformat()
 
     if args.base_price:
-        base_prices = _parse_base_price_args(args.base_price)
+        base_prices = parse_kv_pairs(args.base_price, "양파=1847")
     else:
         try:
             base_prices = get_base_prices_from_kamis(regday)
